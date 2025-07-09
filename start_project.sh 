@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# 脚本的说明信息
+echo "Starting Backend and Frontend services in new terminal windows..."
+echo "Each service will have its own dedicated window."
+
+# 获取当前脚本所在的绝对路径
+# 这让脚本无论从哪里运行都能找到正确的文件夹
+BASE_DIR=$(pwd)
+
+# 启动后端服务
+gnome-terminal --title="🚀 Backend Server" --working-directory="$BASE_DIR/backend" -- bash -c "echo '>>> Activating Conda environment and starting Backend...'; conda activate report-gen-be; uvicorn main:app --reload; exec bash"
+
+# 启动前端服务
+gnome-terminal --title="⚛️ Frontend Server" --working-directory="$BASE_DIR/frontend" -- bash -c "echo '>>> Starting Frontend dev server...'; npm run dev; exec bash"
+
+echo "✅ All services have been launched in new terminal windows."
