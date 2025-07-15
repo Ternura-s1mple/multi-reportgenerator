@@ -1,8 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from backend.config.config import BASE_DIR
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./reports.db" # 使用SQLite文件数据库
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{BASE_DIR / 'reports.db'}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}

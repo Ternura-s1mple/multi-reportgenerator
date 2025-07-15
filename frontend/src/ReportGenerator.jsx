@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 
+import { downloadMarkdownFile } from './utils/downloader';
+
 const API_URL = 'http://127.0.0.1:8000'; // 后端地址
 
 function ReportGenerator() {
@@ -78,6 +80,24 @@ function ReportGenerator() {
         }
     };
 
+     // --- 新增：处理下载点击的函数 ---
+    const handleDownload = () => {
+      const reportToDownload = reports[activeTab];
+      if (!reportToDownload) {
+        alert("没有可下载的内容！");
+        return;
+      }
+      
+      // 1. 截取前20个字符防止文件名过长
+        const topicSnippet = topic.slice(0, 20);
+        // 2. 替换掉Windows和macOS/Linux中常见的文件名非法字符
+        const safeTopic = topicSnippet.replace(/[/\\?%*:|"<>]/g, '_'); 
+        // 3. 确保文件名以 .md 结尾
+        const filename = `Report_${safeTopic}_${reportToDownload.model_name}.md`;
+
+      downloadMarkdownFile(reportToDownload.content, filename);
+    };
+
     return (
         <div style={{ fontFamily: 'sans-serif', padding: '20px', maxWidth: '1000px', margin: 'auto' }}>
             <h1>多模型报告生成器</h1>
@@ -145,12 +165,21 @@ function ReportGenerator() {
                        <ReactMarkdown>{reports[activeTab].content}</ReactMarkdown>
                     </div>
                     
-                    <button
-                        onClick={handleSave}
-                        style={{ marginTop: '20px', padding: '10px 20px', background: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px' }}
-                    >
-                        采用此方案并保存
-                    </button>
+                     {/* --- 修改：在“保存”按钮旁边添加“下载”按钮 --- */}
+                    <div style={{ marginTop: '20px' }}>
+                        <button
+                            onClick={handleSave}
+                            style={{ padding: '10px 20px', background: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px' }}
+                        >
+                            采用此方案并保存
+                        </button>
+                        <button
+                            onClick={handleDownload}
+                            style={{ marginLeft: '10px', padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px' }}
+                        >
+                            下载此版本
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

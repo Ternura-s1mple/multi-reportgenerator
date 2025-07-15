@@ -1,18 +1,20 @@
-# backend/requirements.txt
-
-# Web框架
+# Web 框架
 fastapi
 uvicorn
 
-# 数据库
-sqlalchemy
+# 数据库 & ORM
+SQLAlchemy
 
-# AI & ML
-openai
-google-generativeai
-sentence-transformers
+# 向量搜索 & 嵌入
 chromadb
+sentence-transformers
 
-# 其他工具
-pydantic
+# LLM 框架与 SDK
+langchain
+langchain-openai
+langchain-google-genai
+# 注意: openai 和 google-generativeai 库会自动作为以上库的依赖被安装
+
+# 配置管理
+pydantic-settings
 python-dotenv
