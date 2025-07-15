@@ -180,3 +180,72 @@ def find_similar_reports(request_data: report_schemas.TopicRequest, request: Req
 
     similar_reports = db.query(models.DbReport).filter(models.DbReport.id.in_(similar_ids)).all()
     return similar_reports    
+
+
+# 删除单个报告记录及其关联文件和向量
+@router.delete("/api/report/{report_id}", status_code=204)
+def delete_report(report_id: int, request: Request, db: Session = Depends(get_db)):
+    print(f"收到删除请求: 报告ID {report_id}")
+    report = db.query(models.DbReport).filter(models.DbReport.id == report_id).first()
+
+    if not report:
+        raise HTTPException(status_code=404, detail="报告记录未找到")
+
+    # 1. 从磁盘删除 .md 文件 (如果存在)
+    try:
+        if os.path.exists(report.file_path):
+            os.remove(report.file_path)
+            print(f"已从磁盘删除文件: {report.file_path}")
+    except Exception as e:
+        print(f"删除磁盘文件时出错: {e}")
+        # 即使文件删除失败，也继续删除数据库记录
+
+    # 2. 从向量数据库删除向量
+    try:
+        collection = request.app.state.collection
+        collection.delete(ids=[str(report_id)])
+        print(f"已从向量数据库删除ID: {report_id}")
+    except Exception as e:
+        print(f"从向量数据库删除时出错: {e}")
+
+    # 3. 从SQL数据库删除元数据记录
+    db.delete(report)
+    db.commit()
+    print(f"已从SQL数据库删除记录: {report_id}")
+
+    return # 返回 204 No Content
+
+# 删除一个主题下的所有报告
+@router.delete("/api/theme/{theme_name}", status_code=204)
+def delete_theme(theme_name: str, request: Request, db: Session = Depends(get_db)):
+    """删除一个主题下的所有报告"""
+    print(f"收到删除请求: 主题 '{theme_name}'")
+    reports_to_delete = db.query(models.DbReport).filter(models.DbReport.theme == theme_name).all()
+
+    if not reports_to_delete:
+        raise HTTPException(status_code=404, detail="该主题下没有任何报告")
+
+    report_ids_to_delete = [str(report.id) for report in reports_to_delete]
+
+    # 1. 批量从磁盘删除文件
+    for report in reports_to_delete:
+        try:
+            if os.path.exists(report.file_path):
+                os.remove(report.file_path)
+        except Exception as e:
+            print(f"删除文件 {report.file_path} 时出错: {e}")
+
+    # 2. 批量从向量数据库删除
+    try:
+        collection = request.app.state.collection
+        collection.delete(ids=report_ids_to_delete)
+        print(f"已从向量数据库删除IDs: {report_ids_to_delete}")
+    except Exception as e:
+        print(f"从向量数据库批量删除时出错: {e}")
+
+    # 3. 批量从SQL数据库删除
+    db.query(models.DbReport).filter(models.DbReport.theme == theme_name).delete(synchronize_session=False)
+    db.commit()
+    print(f"已从SQL数据库删除主题 '{theme_name}' 的所有记录。")
+
+    return

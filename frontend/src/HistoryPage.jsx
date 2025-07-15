@@ -33,12 +33,12 @@ function HistoryPage() {
         });
     };
 
- const handleReportClick = (report) => { 
-    setSelectedReportMeta(report); 
-    axios.get(`${API_URL}/api/report-content/${report.id}`).then(response => {
-        setSelectedReportContent(response.data.content);
-    });
-};
+    const handleReportClick = (report) => { 
+        setSelectedReportMeta(report); 
+        axios.get(`${API_URL}/api/report-content/${report.id}`).then(response => {
+            setSelectedReportContent(response.data.content);
+        });
+    };
 
     // --- 新增：处理下载历史文件的函数 ---
     const handleDownloadHistory = () => {
@@ -50,6 +50,43 @@ function HistoryPage() {
         downloadMarkdownFile(selectedReportContent, filename);
     };
 
+
+    // 删除某个主题的处理函数
+    const handleDeleteTheme = async (theme, e) => {
+        e.stopPropagation(); // 阻止事件冒泡，防止触发 handleThemeClick
+        if (window.confirm(`确定要删除主题 "${theme}" 及其下的所有报告吗？此操作不可逆！`)) {
+            try {
+                await axios.delete(`${API_URL}/api/theme/${theme}`);
+                alert(`主题 "${theme}" 已被删除。`);
+                // 从前端状态中移除该主题，实现界面即时更新
+                setThemes(prevThemes => prevThemes.filter(t => t !== theme));
+                if (selectedTheme === theme) {
+                    setSelectedTheme(null);
+                    setReports([]);
+                }
+            } catch (error) {
+                console.error("删除主题时出错:", error);
+                alert("删除主题失败！");
+            }
+        }
+    };
+
+    //：删除单个报告的处理函数
+    const handleDeleteReport = async (reportId, e) => {
+        e.stopPropagation();
+        if (window.confirm(`确定要删除这份报告吗？`)) {
+            try {
+                await axios.delete(`${API_URL}/api/report/${reportId}`);
+                alert(`报告已被删除。`);
+                // 从前端状态中移除该报告
+                setReports(prevReports => prevReports.filter(r => r.id !== reportId));
+            } catch (error) {
+                console.error("删除报告时出错:", error);
+                alert("删除报告失败！");
+            }
+        }
+    };
+
    
     return (
         <div style={{ display: 'flex', height: 'calc(100vh - 40px)', fontFamily: 'sans-serif' }}>
@@ -59,7 +96,9 @@ function HistoryPage() {
                 <ul style={{ listStyle: 'none', padding: 0 }}>
                     {themes.map(theme => (
                         <li key={theme} onClick={() => handleThemeClick(theme)} style={{ padding: '10px', cursor: 'pointer', background: selectedTheme === theme ? '#e0e0e0' : 'transparent', borderRadius: '4px' }}>
-                            {theme}
+                             <span style={{ flexGrow: 1 }}>{theme}</span>
+                              {/* 新增删除主题按钮 */}
+                            <button onClick={(e) => handleDeleteTheme(theme, e)} style={{ background: 'red', color: 'white', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: '4px' }}>X</button>
                         </li>
                     ))}
                 </ul>
@@ -73,6 +112,14 @@ function HistoryPage() {
                                 <li key={report.id} onClick={() => handleReportClick(report)} style={{ padding: '10px', border: '1px solid #eee', marginBottom: '5px', cursor: 'pointer', borderRadius: '4px' }}>
                                     <div><strong>模型:</strong> {report.model_name}</div>
                                     <div><strong>时间:</strong> {new Date(report.saved_at).toLocaleString()}</div>
+                                    {/* 新增删除报告按钮 */}
+                                    <button 
+                                        onClick={(e) => handleDeleteReport(report.id, e)} 
+                                        style={{ background: 'salmon', color: 'white', border: 'none', cursor: 'pointer', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', marginLeft: '10px' }}
+                                    >
+                                     X
+                                    </button>
+                                    
                                 </li>
                             ))}
                         </ul>
