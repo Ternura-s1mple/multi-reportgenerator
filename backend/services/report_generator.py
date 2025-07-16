@@ -6,44 +6,37 @@ from backend.schemas.report_schemas import StructuredReport
 import json
 import asyncio 
 
-async def generate_structured_report(topic: str, model_name: str) -> StructuredReport:
+async def generate_structured_report(topic: str, model_name: str, template_content: str = "") -> StructuredReport:
     """
-    根据主题和模型名称，生成结构化的报告。
+    根据主题、模型名称以及可选的模板内容，异步生成结构化的报告。
     """
-    print(f"开始使用模型 {model_name} 为主题 '{topic}' 生成结构化报告...")
+    print(f"--> [开始] 使用模型 {model_name} 为主题 '{topic}' 生成报告...")
+    print(f"    模板内容长度: {len(template_content)}字")
 
-    # 1. 获取模型适配器
     adapter = get_model_adapter(model_name)
-
-    # 2. 创建一个LangChain聊天模型实例
     llm = adapter.create_chat_model(model_name=model_name, temperature=0.5)
-
-    # 3. 将模型与我们定义的Pydantic Schema绑定，强制其输出JSON
     structured_llm = llm.with_structured_output(StructuredReport)
-
-    # 4. 创建提示词模板
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", report_prompts.SYSTEM_INSTRUCTION),
-        ("human", report_prompts.USER_PROMPT_TEMPLATE),
-    ])
     
-    # 5. 格式化并填充提示词
-    formatted_prompt = prompt_template.invoke({"topic": topic})
-
-    # 6. 调用模型并获取结构化结果
-    try:
-        result = await structured_llm.ainvoke(formatted_prompt)
-        print(f"✅ 模型 {model_name} 成功生成报告。")
-        return result
-    except Exception as e:
-        print(f"❌ 模型 {model_name} 生成报告失败: {e}")
-        # 在失败时可以返回一个默认的错误报告结构
-        return StructuredReport(
-            title=f"报告生成失败: {topic}",
-            introduction=f"尝试使用模型 {model_name} 生成报告时出现错误。",
-            sections=[],
-            conclusion=f"错误详情: {e}"
-        )
+    # 根据有无模板内容，选择不同的提示词
+    if template_content:
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", report_prompts.SYSTEM_INSTRUCTION),
+            ("human", report_prompts.TEMPLATE_BASED_REPORT_PROMPT),
+        ])
+        prompt_inputs = {"topic": topic, "template_content": template_content}
+    else:
+        # 回退到旧的、无模板的提示词
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", report_prompts.SYSTEM_INSTRUCTION),
+            ("human", report_prompts.USER_PROMPT_TEMPLATE),
+        ])
+        prompt_inputs = {"topic": topic}
+    
+    formatted_prompt = prompt_template.invoke(prompt_inputs)
+    
+    result = await structured_llm.ainvoke(formatted_prompt)
+    print(f"--> [成功] 模型 {model_name} 已生成报告。")
+    return result
 
 # (辅助函数) 将结构化报告转换为Markdown
 def convert_report_to_markdown(report: StructuredReport) -> str:
@@ -54,7 +47,6 @@ def convert_report_to_markdown(report: StructuredReport) -> str:
     md += f"## 结论\n{report.conclusion}\n"
     return md
 
-# backend/services/report_generator.py (在末尾添加)
 
 async def generate_chat_stream(messages: list, model_name: str):
     """

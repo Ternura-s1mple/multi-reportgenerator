@@ -1,6 +1,6 @@
 # backend/api/routes.py (最终完整版)
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from backend.config.config import BASE_DIR
@@ -15,10 +15,12 @@ from backend.services.report_generator import (
     convert_report_to_markdown,
     generate_chat_stream
 )
+from backend.services.report_graph import graph as report_graph
 from backend.schemas import report_schemas
 from backend.config.config import settings
 from backend.database import models
 from backend.database.connection import SessionLocal
+from backend.utils.file_parser import parse_docx_template
 
 # 数据库会话依赖 (从旧的main.py迁移过来)
 def get_db():
@@ -30,38 +32,89 @@ def get_db():
 
 router = APIRouter()
 
-# --- 报告生成与对话相关端点 (这部分您已拥有) ---
-
 @router.post("/api/reports/generate-mixed")
-async def generate_mixed_reports(request: dict, db: Session = Depends(get_db)):
+async def generate_mixed_reports(request: dict):
+    """
+    混合模式 (无模板): 并行运行LangGraph工作流来生成报告。
+    """
     topic = request.get("topic")
     if not topic:
         raise HTTPException(status_code=400, detail="Topic is required.")
 
-    tasks = [
-        generate_structured_report(topic, model_name) 
-        for model_name in settings.MIXED_MODE_MODELS
-    ]
+    # 统一调用图，但不传入 template_content
+    tasks = []
+    for model_name in settings.MIXED_MODE_MODELS:
+        initial_state = {
+            "original_topic": topic,
+            "model_name": model_name
+            # template_content 字段被省略
+        }
+        tasks.append(report_graph.ainvoke(initial_state))
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    final_states = await asyncio.gather(*tasks, return_exceptions=True)
 
+    # 后续处理结果的逻辑是完全一致的，可以复用
     final_reports = []
-    # 注意：这里我们使用了新的向量存储逻辑，所以需要chroma_client和sentence_model
-    # 您需要在您的 main.py 中将它们作为全局变量，或者通过更高级的依赖注入方式传入
-    # 为简化，我们暂时假设可以从某处获取它们，或者在保存时再处理向量
-    for result, model_name in zip(results, settings.MIXED_MODE_MODELS):
-        if isinstance(result, report_schemas.StructuredReport):
+    for result_state, model_name in zip(final_states, settings.MIXED_MODE_MODELS):
+        if isinstance(result_state, dict) and result_state.get("final_report"):
+            report_obj = result_state["final_report"]
             final_reports.append({
                 "model_name": model_name,
-                "content": convert_report_to_markdown(result)
+                "content": convert_report_to_markdown(report_obj)
             })
         else:
-            print(f"❌ 模型 {model_name} 生成报告失败: {result}")
+            print(f"❌ 模型 {model_name} 的工作流执行失败: {result_state}")
             final_reports.append({
                 "model_name": model_name,
-                "content": f"# 报告生成失败\n\n**错误详情:**\n```\n{result}\n```"
+                "content": f"# 工作流执行失败\n\n**错误详情:**\n```\n{result_state}\n```"
             })
+    
+    return {"reports": final_reports}
 
+
+@router.post("/api/reports/generate-from-template")
+async def generate_from_template(
+    topic: str = Form(...),
+    template_file: UploadFile = File(...)
+):
+    """
+    混合模式 (有模板): 解析模板并并行运行LangGraph工作流。
+    """
+    if not template_file.filename.endswith('.docx'):
+        raise HTTPException(status_code=400, detail="模板文件必须是 .docx 格式。")
+
+    template_content = parse_docx_template(template_file)
+    if not template_content:
+        raise HTTPException(status_code=400, detail="无法解析模板文件或文件为空。")
+    
+    # 统一调用图，并传入解析后的 template_content
+    tasks = []
+    for model_name in settings.MIXED_MODE_MODELS:
+        initial_state = {
+            "original_topic": topic,
+            "model_name": model_name,
+            "template_content": template_content # <--- 传入模板内容
+        }
+        tasks.append(report_graph.ainvoke(initial_state))
+
+    # 并行执行和后续处理逻辑与上面完全相同
+    final_states = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    final_reports = []
+    for result_state, model_name in zip(final_states, settings.MIXED_MODE_MODELS):
+        if isinstance(result_state, dict) and result_state.get("final_report"):
+            report_obj = result_state["final_report"]
+            final_reports.append({
+                "model_name": model_name,
+                "content": convert_report_to_markdown(report_obj)
+            })
+        else:
+            print(f"❌ 模型 {model_name} 的工作流执行失败: {result_state}")
+            final_reports.append({
+                "model_name": model_name,
+                "content": f"# 工作流执行失败\n\n**错误详情:**\n```\n{result_state}\n```"
+            })
+            
     return {"reports": final_reports}
 
 
@@ -84,27 +137,30 @@ async def chat_completions(request: report_schemas.ChatRequest):
 
 
 
-@router.post("/api/save-report")
-def save_report(request: report_schemas.SaveRequest, db: Session = Depends(get_db)):
-    # 注意：这里的 SaveRequest 需要在 report_schemas.py 中定义
-    print("\n" + "-"*50)
-    print(f"收到保存请求: 模型='{request.model_name}'")
+# backend/api/routes.py
 
-    theme = request.topic[:20].strip() # 稍微加长主题长度
-    storage_dir = BASE_DIR / "storage" / theme
+@router.post("/api/save-report")
+def save_report(request_data: report_schemas.SaveRequest, request: Request, db: Session = Depends(get_db)):
+    # ^^^^ 修改在这里：将第一个参数重命名为 request_data，并加入了 request: Request ^^^^
+
+    print("\n" + "-"*50)
+    print(f"收到保存请求: 模型='{request_data.model_name}'") # 使用 request_data
+
+    theme = request_data.topic[:20].strip()
+    storage_dir = BASE_DIR / "storage" / theme # 使用我们定义的BASE_DIR
     os.makedirs(storage_dir, exist_ok=True)
     timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
-    file_path = os.path.join(storage_dir, f"{request.model_name.replace(':', '-')}_{timestamp}.md")
+    file_path = storage_dir / f"{request_data.model_name.replace(':', '-')}_{timestamp}.md"
 
     with open(file_path, "w", encoding="utf-8") as f:
-        f.write(request.content)
+        f.write(request_data.content)
     print(f"文件已成功保存至: {file_path}")
 
     db_report = models.DbReport(
         theme=theme,
-        original_topic=request.topic,
-        model_name=request.model_name,
-        file_path=file_path,
+        original_topic=request_data.topic,
+        model_name=request_data.model_name,
+        file_path=str(file_path), # 确保路径是字符串
     )
     db.add(db_report)
     db.commit()
@@ -126,7 +182,7 @@ def save_report(request: report_schemas.SaveRequest, db: Session = Depends(get_d
         print(f"❌ 存入向量数据库时发生错误: {e}")
 
     print("-"*50 + "\n")
-    return {"message": "报告保存成功", "id": db_report.id, "path": file_path}
+    return {"message": "报告保存成功", "id": db_report.id, "path": str(file_path)}
 
 
 @router.get("/api/themes", response_model=list[str])

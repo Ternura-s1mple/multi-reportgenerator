@@ -1,20 +1,46 @@
-# Web 框架
+# ================================================
+# Project: Multi-Model Report & Chat Platform
+# Manually Curated Requirements
+# ================================================
+
+#
+# Web Framework & ASGI Server
+# FastAPI 框架和 Uvicorn 服务器（包含高性能组件）
+#
 fastapi
-uvicorn
+uvicorn[standard]
 
-# 数据库 & ORM
-SQLAlchemy
-
-# 向量搜索 & 嵌入
-chromadb
-sentence-transformers
-
-# LLM 框架与 SDK
-langchain
-langchain-openai
-langchain-google-genai
-# 注意: openai 和 google-generativeai 库会自动作为以上库的依赖被安装
-
-# 配置管理
+#
+# Data Validation & Configuration
+# 用于从 .env 加载和验证配置
+#
 pydantic-settings
 python-dotenv
+
+#
+# Database (SQL ORM & Vector DB)
+#
+SQLAlchemy
+chromadb
+
+#
+# AI / LangChain Framework
+# 核心框架和图工作流引擎
+#
+langchain
+langgraph
+
+#
+# LLM & Embedding Integrations
+# LangChain的模型适配器和句向量模型库
+#
+langchain-openai
+langchain-google-genai
+sentence-transformers
+
+#
+# Document Processing
+# 用于解析 .docx 和 .pdf 文件
+#
+python-docx
+pypdf
