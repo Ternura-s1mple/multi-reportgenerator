@@ -15,12 +15,17 @@ __pycache__/
 *.pyo
 *.pyd
 
-# 忽略数据库文件 (包含个人数据)
+# 忽略数据库文件 (非常重要)
 *.db
 *.sqlite3
+.chroma_db/
 
-# 忽略生成的报告文件 (可选，如果您想上传报告可以删除此行)
+# 忽略生成的报告和用户上传的模板
 storage/
+# (这里可以添加一个 uploads/ 文件夹，如果未来支持用户上传模板)
+
+# 忽略本地知识库 (推荐)
+backend/knowledge_base/
 
 # --- Node / Frontend Specific ---
 # 忽略所有依赖包 (非常大)
@@ -31,9 +36,6 @@ dist/
 .vite/
 
 # --- IDE / OS Specific ---
-# 忽略VSCode, PyCharm等编辑器的配置文件夹
 .vscode/
 .idea/
-
-# 忽略macOS的系统文件
 .DS_Store
