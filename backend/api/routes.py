@@ -46,8 +46,11 @@ async def generate_mixed_reports(request: dict):
     for model_name in settings.MIXED_MODE_MODELS:
         initial_state = {
             "original_topic": topic,
-            "model_name": model_name
-            # template_content 字段被省略
+            "model_name": model_name,
+            "template_content": None,
+            "sentence_model": request.app.state.sentence_model,
+            "reports_collection": request.app.state.reports_collection,
+            "knowledge_collection": request.app.state.knowledge_collection
         }
         tasks.append(report_graph.ainvoke(initial_state))
 
@@ -74,6 +77,8 @@ async def generate_mixed_reports(request: dict):
 
 @router.post("/api/reports/generate-from-template")
 async def generate_from_template(
+    request: Request, # <--- 新增1：注入Request对象以访问全局app.state
+    db: Session = Depends(get_db), # <--- 新增2：注入DB会话
     topic: str = Form(...),
     template_file: UploadFile = File(...)
 ):
@@ -83,7 +88,7 @@ async def generate_from_template(
     if not template_file.filename.endswith('.docx'):
         raise HTTPException(status_code=400, detail="模板文件必须是 .docx 格式。")
 
-    template_content = parse_docx_template(template_file)
+    template_content = await parse_docx_template(template_file)
     if not template_content:
         raise HTTPException(status_code=400, detail="无法解析模板文件或文件为空。")
     
@@ -93,7 +98,10 @@ async def generate_from_template(
         initial_state = {
             "original_topic": topic,
             "model_name": model_name,
-            "template_content": template_content # <--- 传入模板内容
+            "template_content": template_content, # <--- 传入模板内容
+            "sentence_model": request.app.state.sentence_model,
+            "reports_collection": request.app.state.reports_collection,
+            "knowledge_collection": request.app.state.knowledge_collection
         }
         tasks.append(report_graph.ainvoke(initial_state))
 
@@ -141,7 +149,7 @@ async def chat_completions(request: report_schemas.ChatRequest):
 
 @router.post("/api/save-report")
 def save_report(request_data: report_schemas.SaveRequest, request: Request, db: Session = Depends(get_db)):
-    # ^^^^ 修改在这里：将第一个参数重命名为 request_data，并加入了 request: Request ^^^^
+   
 
     print("\n" + "-"*50)
     print(f"收到保存请求: 模型='{request_data.model_name}'") # 使用 request_data
@@ -218,7 +226,7 @@ def get_report_content(report_id: int, db: Session = Depends(get_db)):
 def find_similar_reports(request_data: report_schemas.TopicRequest, request: Request, db: Session = Depends(get_db)):
     """根据主题查找相似的历史报告"""
     print(f"收到相似度搜索请求，主题: '{request_data.topic}'")
-    collection = request.app.state.collection
+    collection = request.app.state.reports_collection
     if collection.count() == 0:
         print("向量数据库为空，无需搜索。")
         return []

@@ -29,7 +29,7 @@ function ChatInterface({ messages, setMessages }) {
     useEffect(scrollToBottom, [messages]);
 
     // 核心的生成逻辑，被 handleSubmit 和 proceedToGenerate 调用
-    const generateResponse = async (messagesForApi, topicForApi) => {
+    const generateResponse = async (messagesForApi, topicForApi,  templateFile) => {
         setIsLoading(true);
         setShowSimilar(false); 
 
@@ -136,15 +136,16 @@ function ChatInterface({ messages, setMessages }) {
             console.error("检索相似报告时出错:", error);
         }
 
-        await generateResponse(newMessages, submittedInput);
+        await generateResponse(newMessages, submittedInput, templateFile);
     };
 
     // 当用户在“相似推荐”弹窗中点击“仍然生成”时调用
     const proceedToGenerate = async () => {
         const lastUserMessage = messages.slice().reverse().find(m => m.role === 'user');
         if (!lastUserMessage) return;
+        const originalTopic = lastUserMessage.content.split('\n')[0].replace('主题: ', '');
         
-        await generateResponse(messages, lastUserMessage.content.split('\n')[0].replace('主题: ', ''));
+        await generateResponse(messages, originalTopic, templateFile);
     };
 
     const handleFileChange = (event) => {
