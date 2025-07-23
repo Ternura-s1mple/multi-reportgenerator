@@ -3,6 +3,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 import chromadb
+import json
 import asyncio
 from sentence_transformers import SentenceTransformer
 
@@ -27,10 +28,21 @@ async def expand_topic_node(state: GraphState) -> GraphState:
     
     prompt = report_prompts.TOPIC_EXPANDER_PROMPT_TEMPLATE.format(topic=topic)
     response = await llm.ainvoke(prompt)
-    
-    queries = [q.strip() for q in response.content.split('\n') if q.strip()]
-    print(f"扩展出的查询: {queries}")
-    return {"expanded_queries": queries}
+    try:
+                # 核心修改：解析模型返回的JSON字符串
+                result_json = json.loads(response.content)
+                queries = result_json.get("queries", [])
+                print(f"从JSON中成功解析出查询: {queries}")
+                if not queries:
+                    print("警告：模型返回了JSON但查询列表为空，将使用原始主题作为查询。")
+                    queries = [topic]
+    except (json.JSONDecodeError, AttributeError) as e:
+        print(f"❌ 解析JSON失败: {e}。将使用原始主题作为查询。")
+        # 失败时的回退策略：直接使用用户输入的主题
+        queries = [topic]
+        
+    return {"expanded_queries": queries}        
+
 
 
 async def retrieve_context_node(state: GraphState) -> GraphState:
