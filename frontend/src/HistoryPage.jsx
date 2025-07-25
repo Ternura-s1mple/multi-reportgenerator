@@ -5,8 +5,8 @@ import ReactMarkdown from 'react-markdown';
 
 // --- 新增：导入下载工具函数 ---
 import { downloadMarkdownFile } from './utils/downloader';
+import { API_URL } from './config';
 
-const API_URL = 'http://127.0.0.1:8000';
 
 function HistoryPage() {
     const [themes, setThemes] = useState([]);

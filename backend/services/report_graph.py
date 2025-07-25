@@ -8,40 +8,65 @@ import asyncio
 from sentence_transformers import SentenceTransformer
 
 from backend.services.graph_state import GraphState
-from backend.services.model_adapters import get_model_adapter
-from backend.schemas.report_schemas import StructuredReport
+from backend.services.model_adapters import get_model_adapter, DeepSeekAdapter, QwenApiAdapter
+from backend.schemas.report_schemas import StructuredReport, ReportSection, QueryExpansion 
+from langchain_core.output_parsers import PydanticOutputParser
 from backend.prompts import report_prompts
 from backend.config.config import BASE_DIR, settings
-
 
 
 # --- 定义图的节点 ---
 
 async def expand_topic_node(state: GraphState) -> GraphState:
-    """节点1: 将用户主题扩展为更具体的查询"""
+    """节点1: 为不同模型应用不同的JSON输出策略，以稳定生成查询"""
     print(f"---[节点1: 主题扩展] | 收到状态键: {list(state.keys())} ---")
     topic = state['original_topic']
-    model_name = state['model_name'] # 使用同一个模型进行扩展
+    model_name = state['model_name'] # 这里我们使用从API层传入的模型名
 
     adapter = get_model_adapter(model_name)
-    llm = adapter.create_chat_model(model_name=model_name, temperature=0.3)
-    
-    prompt = report_prompts.TOPIC_EXPANDER_PROMPT_TEMPLATE.format(topic=topic)
-    response = await llm.ainvoke(prompt)
+
+    print(f"    为主题扩展任务选用模型: {model_name}")
+
     try:
-                # 核心修改：解析模型返回的JSON字符串
-                result_json = json.loads(response.content)
-                queries = result_json.get("queries", [])
-                print(f"从JSON中成功解析出查询: {queries}")
-                if not queries:
-                    print("警告：模型返回了JSON但查询列表为空，将使用原始主题作为查询。")
-                    queries = [topic]
-    except (json.JSONDecodeError, AttributeError) as e:
-        print(f"❌ 解析JSON失败: {e}。将使用原始主题作为查询。")
-        # 失败时的回退策略：直接使用用户输入的主题
+        # --- vvvv 核心修正：应用与节点三相同的 if/else 逻辑 vvvv ---
+        if isinstance(adapter, (DeepSeekAdapter, QwenApiAdapter)):
+            # **情况A：对于DeepSeek和Qwen API，我们手动精确控制JSON模式**
+            print(f"    检测到 {type(adapter).__name__}，手动开启JSON模式。")
+            llm = adapter.create_chat_model(
+                model_name=model_name, 
+                temperature=0.1,
+                response_format={'type': 'json_object'} # 手动传入最简单的参数
+            )
+            parser = PydanticOutputParser(pydantic_object=QueryExpansion)
+            prompt_template = ChatPromptTemplate.from_template(
+                report_prompts.TOPIC_EXPANDER_PROMPT_TEMPLATE + "\n\n{format_instructions}"
+            )
+            chain = prompt_template | llm | parser
+            response_obj = await chain.ainvoke({
+                "topic": topic,
+                "format_instructions": parser.get_format_instructions()
+            })
+
+        else:
+            # **情况B：对于其他模型（如Gemini, 本地vLLM），继续使用标准的 .with_structured_output**
+            print(f"    检测到 {type(adapter).__name__}，使用标准 .with_structured_output。")
+            llm = adapter.create_chat_model(model_name=model_name, temperature=0.1)
+            structured_llm = llm.with_structured_output(QueryExpansion)
+            prompt = ChatPromptTemplate.from_template(report_prompts.TOPIC_EXPANDER_PROMPT_TEMPLATE)
+            chain = prompt | structured_llm
+            response_obj = await chain.ainvoke({"topic": topic})
+        # --- ^^^^ 修正结束 ^^^^ ---
+
+        queries = response_obj.queries
+        print(f"✅ 成功生成扩展查询 (Rationale: {getattr(response_obj, 'rationale', 'N/A')})")
+        if not queries:
+            queries = [topic]
+
+    except Exception as e:
+        print(f"❌ 生成扩展查询失败: {e}。将使用原始主题作为回退。")
         queries = [topic]
-        
-    return {"expanded_queries": queries}        
+
+    return {"expanded_queries": queries}
 
 
 
@@ -74,42 +99,62 @@ async def retrieve_context_node(state: GraphState) -> GraphState:
 
 
 async def generate_report_node(state: GraphState) -> GraphState:
-    """
-    节点3: 智能组装Prompt，结合RAG上下文和可选模板，生成最终报告
-    """
     print(f"---[节点3: 最终报告生成] | 收到状态键: {list(state.keys())} ---")
     topic = state['original_topic']
     context = state['retrieved_context']
     model_name = state['model_name']
-    template_content = state.get('template_content') # 安全地获取模板内容
+    template_content = state.get('template_content')
 
     if template_content:
-        print("    检测到用户模板，将用其作为格式指令。")
         formatting_instructions = template_content
     else:
-        print("    未提供用户模板，使用默认的格式指令。")
         formatting_instructions = report_prompts.NO_TEMPLATE_INSTRUCTION
 
     adapter = get_model_adapter(model_name)
-    llm = adapter.create_chat_model(model_name=model_name, temperature=0.5)
-    structured_llm = llm.with_structured_output(StructuredReport)
 
-    # 使用我们新的“终极”模板
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", report_prompts.SYSTEM_INSTRUCTION),
-        ("human", report_prompts.FINAL_REPORT_PROMPT_TEMPLATE),
-    ])
+    # --- vvvv 核心修改：在这里进行判断和特殊处理 vvvv ---
+    if isinstance(adapter, (DeepSeekAdapter,QwenApiAdapter)):
+        # **情况A：对于DeepSeek，我们手动控制JSON模式**
+        print("    检测到DeepSeek模型，手动开启JSON模式。")
 
-    # 填充所有需要的变量
-    prompt_inputs = {
-        "topic": topic,
-        "context": context,
-        "formatting_instructions": formatting_instructions
-    }
+        # 1. 创建LLM实例，并手动传入 response_format
+        llm = adapter.create_chat_model(
+            model_name=model_name, 
+            temperature=0.7,
+            response_format={'type': 'json_object'} 
+        )
 
-    formatted_prompt = prompt_template.invoke(prompt_inputs)
+        # 2. 使用 PydanticOutputParser 来构建一个包含格式指令的链
+        parser = PydanticOutputParser(pydantic_object=StructuredReport)
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", report_prompts.SYSTEM_INSTRUCTION),
+            ("human", report_prompts.FINAL_REPORT_PROMPT_TEMPLATE + "\n\n{format_instructions}")
+        ])
+        chain = prompt_template | llm | parser
 
-    response = await structured_llm.ainvoke(formatted_prompt)
+        # 3. 异步调用链
+        response_dict = await chain.ainvoke({
+            "topic": topic, "context": context,
+            "formatting_instructions": formatting_instructions,
+            "format_instructions": parser.get_format_instructions(),
+        })
+        response = StructuredReport.model_validate(response_dict)
+
+    else:
+        # **情况B：对于其他模型（如Gemini），继续使用LangChain的
+        print("    使用 .with_structured_output 方法进行结构化输出...")
+        llm = adapter.create_chat_model(model_name=model_name, temperature=0.5)
+        structured_llm = llm.with_structured_output(StructuredReport)
+
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", report_prompts.SYSTEM_INSTRUCTION),
+            ("human", report_prompts.FINAL_REPORT_PROMPT_TEMPLATE),
+        ])
+        prompt_inputs = {"topic": topic, "context": context, "formatting_instructions": formatting_instructions}
+        formatted_prompt = prompt_template.invoke(prompt_inputs)
+        response = await structured_llm.ainvoke(formatted_prompt)
+    # --- ^^^^ 修改结束 ^^^^ ---
+
     print("最终报告已生成。")
     return {"final_report": response}
 

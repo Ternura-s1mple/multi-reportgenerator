@@ -15,6 +15,11 @@ class StructuredReport(BaseModel):
     sections: List[ReportSection] = Field(..., description="报告的主体部分，由多个章节构成。")
     conclusion: str = Field(..., description="报告的结论部分。")
 
+class QueryExpansion(BaseModel):
+    """为主题扩展的输出定义一个包含理由和查询列表的严格Schema"""
+    rationale: str = Field(..., description="生成这些查询的策略和理由的简要说明。")
+    queries: List[str] = Field(..., description="生成的、用于研究的具体查询列表。")
+
 class Message(BaseModel):
     role: str
     content: str

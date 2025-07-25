@@ -5,8 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import MultiReportViewer from './MultiReportViewer';
 import './ChatInterface.css';
-
-const API_URL = 'http://127.0.0.1:8000';
+import { API_URL } from './config';
 
 // 从父组件 App.jsx 接收 messages 和 setMessages，以实现状态保持
 function ChatInterface({ messages, setMessages }) {
@@ -165,9 +164,9 @@ function ChatInterface({ messages, setMessages }) {
                 <label htmlFor="model-select" style={{ marginRight: '10px', fontWeight: 'bold' }}>当前模式: </label>
                 <select id="model-select" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} style={{ padding: '5px' }}>
                     <option value="mixed-mode">混合模式 (生成多份报告)</option>
-                    <option value="gemini">Gemini (对话)</option>
                     <option value="deepseek">DeepSeek (对话)</option>
-                    <option value="qwen">Qwen 2.5 (本地对话)</option>
+                    <option value="qwen-local">Qwen 2.5 (本地)</option> 
+                    <option value="qwen-api">Qwen (API)</option> 
                 </select>
             </div>
 

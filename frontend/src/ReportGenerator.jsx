@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 
 import { downloadMarkdownFile } from './utils/downloader';
 
-const API_URL = 'http://127.0.0.1:8000'; // 后端地址
+import { API_URL } from './config';
 
 function ReportGenerator() {
     const [topic, setTopic] = useState('分析2025年新能源汽车市场的机遇与挑战');

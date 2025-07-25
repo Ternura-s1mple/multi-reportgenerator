@@ -22,7 +22,7 @@ from backend.database import models
 from backend.database.connection import SessionLocal
 from backend.utils.file_parser import parse_docx_template
 
-# 数据库会话依赖 (从旧的main.py迁移过来)
+# 数据库会话依赖 
 def get_db():
     db = SessionLocal()
     try:
@@ -32,46 +32,53 @@ def get_db():
 
 router = APIRouter()
 
-@router.post("/api/reports/generate-mixed")
-async def generate_mixed_reports(request: dict):
-    """
-    混合模式 (无模板): 并行运行LangGraph工作流来生成报告。
-    """
-    topic = request.get("topic")
-    if not topic:
-        raise HTTPException(status_code=400, detail="Topic is required.")
+# backend/api/routes.py
 
-    # 统一调用图，但不传入 template_content
+@router.post("/api/reports/generate-mixed")
+async def generate_mixed_reports(request: Request, db: Session = Depends(get_db)):
+    """
+    混合模式 (无模板): 并行运行LangGraph工作流。
+    """
+    # 1. 从 Request 对象中异步解析 JSON body
+    try:
+        body = await request.json()
+        topic = body.get("topic")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.")
+    
+    if not topic:
+        raise HTTPException(status_code=400, detail="Topic is required in JSON body.")
+
     tasks = []
     for model_name in settings.MIXED_MODE_MODELS:
         initial_state = {
             "original_topic": topic,
             "model_name": model_name,
             "template_content": None,
+            # 2. 现在可以正确地从 request.app.state 中获取全局工具了
             "sentence_model": request.app.state.sentence_model,
             "reports_collection": request.app.state.reports_collection,
-            "knowledge_collection": request.app.state.knowledge_collection
+            "knowledge_collection": request.app.state.knowledge_collection,
         }
+        print(f"为模型 {model_name} 创建无模板任务，状态键: {list(initial_state.keys())}")
         tasks.append(report_graph.ainvoke(initial_state))
-
+    
     final_states = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # 后续处理结果的逻辑是完全一致的，可以复用
+    
     final_reports = []
     for result_state, model_name in zip(final_states, settings.MIXED_MODE_MODELS):
-        if isinstance(result_state, dict) and result_state.get("final_report"):
+         if isinstance(result_state, dict) and result_state.get("final_report"):
             report_obj = result_state["final_report"]
             final_reports.append({
                 "model_name": model_name,
                 "content": convert_report_to_markdown(report_obj)
             })
-        else:
+         else:
             print(f"❌ 模型 {model_name} 的工作流执行失败: {result_state}")
             final_reports.append({
                 "model_name": model_name,
                 "content": f"# 工作流执行失败\n\n**错误详情:**\n```\n{result_state}\n```"
             })
-    
     return {"reports": final_reports}
 
 
@@ -178,7 +185,7 @@ def save_report(request_data: report_schemas.SaveRequest, request: Request, db: 
     try:
         print("正在为新报告创建向量...")
         sentence_model = request.app.state.sentence_model
-        collection = request.app.state.collection
+        collection = request.app.state.reports_collection
         embedding = sentence_model.encode(request_data.topic).tolist()
         collection.add(
             embeddings=[embedding],

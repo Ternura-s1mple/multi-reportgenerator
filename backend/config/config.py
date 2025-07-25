@@ -12,19 +12,22 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
     DEEPSEEK_API_KEY: str
     VLLM_QWEN_URL: str
-    # vvvv 新增：定义混合模式要调用的模型列表 vvvv
+    QWEN_API_KEY: str
+
     MIXED_MODE_MODELS: List[str] = [
-        "gemini-2.5-flash",
-        "deepseek-chat"
-        # "Qwen/Qwen2.5-7B-Chat" # 如果您的本地模型在运行，可以取消这行注释
+        # "gemini-2.5-flash",
+        "deepseek-chat",
+        "/data2/models/Qwen2.5-72B-Instruct",
+        "qwen-long"
     ]
-    # ^^^^                                       ^^^^
+
 
 settings = Settings()
 
 
 MODEL_MAPPING = {
-    "gemini": "gemini-2.5-flash",
+    # "gemini": "gemini-2.5-flash",
     "deepseek": "deepseek-chat",
-    "qwen": "Qwen/Qwen2.5-7B-Chat"
+    "qwen-local": "/data2/models/Qwen2.5-72B-Instruct",
+    "qwen-api": "qwen-long"
 }

@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import { downloadMarkdownFile } from './utils/downloader'; // 导入下载工具
 
-const API_URL = 'http://127.0.0.1:8000';
+import { API_URL } from './config';
 
 // 组件现在接收 reports 和 topic 两个 props
 function MultiReportViewer({ reports, topic }) {

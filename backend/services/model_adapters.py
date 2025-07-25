@@ -26,23 +26,54 @@ class OpenAIAdapter(ModelAdapter):
         )
         
 class DeepSeekAdapter(ModelAdapter):
-    def create_chat_model(self, model_name: str, temperature: float = 0.7):
+    def create_chat_model(self, model_name: str, temperature: float = 0.7, **kwargs):
         return ChatOpenAI(
             model=model_name,
             api_key=settings.DEEPSEEK_API_KEY,
             base_url="https://api.deepseek.com/v1",
-            temperature=temperature
+            temperature=temperature,
+            model_kwargs=kwargs
         )
+    
+class QwenApiAdapter(ModelAdapter):
+    def create_chat_model(self, model_name: str, temperature: float = 0.7, **kwargs):
+        return ChatOpenAI(
+            model=model_name,
+            api_key=settings.QWEN_API_KEY,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            temperature=temperature,
+            model_kwargs=kwargs
+        )
+    
+class VLLMAdapter(ModelAdapter):
+    def create_chat_model(self, model_name: str, temperature: float = 0.7, **kwargs):
+        return ChatOpenAI(
+            model=model_name,
+            api_key="EMPTY",  # vLLM通常不需要密钥
+            base_url=settings.VLLM_QWEN_URL,
+            temperature=temperature,
+            model_kwargs=kwargs
+        )
+
+  
 
 # 工厂函数：根据模型名称返回对应的适配器实例
 def get_model_adapter(model_name: str) -> ModelAdapter:
-    if "gemini" in model_name:
+    # 使用更精确的 startswith 来判断，避免混淆
+    if model_name.startswith("gemini"):
         return GeminiAdapter()
-    elif "deepseek" in model_name:
+    elif model_name.startswith("deepseek"):
         return DeepSeekAdapter()
-    # 更多模型可以在这里添加...
-    else: # 默认为OpenAI兼容模型 (包括vLLM)
-        return OpenAIAdapter()
+    elif model_name in MODEL_MAPPING.values() and "qwen" in model_name.lower():
+        # 判断是否是API版本的Qwen
+        if model_name == MODEL_MAPPING.get("qwen-api"):
+             return QwenApiAdapter()
+        else: # 否则认为是本地部署的Qwen
+             return VLLMAdapter()
+    else:
+        # 可以保留一个通用的VLLM作为默认或抛出错误
+        print(f"警告：未找到完全匹配的适配器，将使用通用的VLLM适配器。模型: {model_name}")
+        return VLLMAdapter()
     
 def resolve_model_alias(alias: str) -> str | None:
     """
