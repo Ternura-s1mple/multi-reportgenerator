@@ -1,15 +1,20 @@
-# --- 忽略所有类型的密钥和环境变量文件 ---
+# ================================================
+# .gitignore for Full-Stack Python/React Project
+# ================================================
+
+# --- 敏感信息 / Secrets ---
+# 绝对禁止提交任何包含密钥的环境变量文件
 .env
 *.env
 .env.*
 
-# --- Python / Backend Specific ---
-# 忽略虚拟环境文件夹
+# --- Python / Backend 忽略项 ---
+# 忽略 Conda / venv 虚拟环境文件夹
 .venv/
 venv/
 env/
 
-# 忽略Python的缓存文件和文件夹
+# 忽略 Python 缓存
 __pycache__/
 *.pyc
 *.pyo
@@ -22,20 +27,34 @@ __pycache__/
 
 # 忽略生成的报告和用户上传的模板
 storage/
-# (这里可以添加一个 uploads/ 文件夹，如果未来支持用户上传模板)
+uploads/
 
-# 忽略本地知识库 (推荐)
+# 忽略本地知识库 (推荐，除非是小型公开示例)
 backend/knowledge_base/
 
-# --- Node / Frontend Specific ---
-# 忽略所有依赖包 (非常大)
+# 忽略模型缓存
+backend/.cache/
+
+# --- Node.js / Frontend 忽略项 ---
+# 忽略所有npm依赖包 (非常大)
 node_modules/
 
 # 忽略编译后的生产文件
 dist/
 .vite/
 
-# --- IDE / OS Specific ---
+# 忽略日志文件和调试报告
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+# --- IDE / OS 忽略项 ---
+# 忽略VSCode, PyCharm等编辑器的配置文件夹
 .vscode/
 .idea/
+
+# 忽略macOS和Windows的系统文件
 .DS_Store
+Thumbs.db
