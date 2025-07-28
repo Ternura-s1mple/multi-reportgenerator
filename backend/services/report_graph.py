@@ -13,6 +13,7 @@ from backend.schemas.report_schemas import StructuredReport, ReportSection, Quer
 from langchain_core.output_parsers import PydanticOutputParser
 from backend.prompts import report_prompts
 from backend.config.config import BASE_DIR, settings
+import numpy as np
 
 
 # --- 定义图的节点 ---
@@ -71,31 +72,81 @@ async def expand_topic_node(state: GraphState) -> GraphState:
 
 
 async def retrieve_context_node(state: GraphState) -> GraphState:
-    """节点2: 从本地知识库进行RAG检索"""
-    print(f"---[节点2: 上下文检索] | 收到状态键: {list(state.keys())} ---")
+    """
+    节点2+3: 仿照 find_similar_reports 的成功模式，
+             使用 BGE Bi-Encoder + Cross-Encoder Reranker 进行两阶段RAG检索。
+    """
+    print("---[节点2: 上下文检索 (召回+精排模式)]---")
 
     knowledge_collection = state.get('knowledge_collection')
     sentence_model = state.get('sentence_model')
+    reranker_model = state.get('reranker_model') # 获取重排模型
+    topic = state['original_topic'] # 我们用原始主题来做精排
 
-    if not knowledge_collection or not sentence_model:
-        print("知识库未初始化，跳过检索。")
+    if not all([knowledge_collection, sentence_model, reranker_model]):
+        print("    RAG所需的一个或多个工具未初始化，跳过检索。")
         return {"retrieved_context": "无相关知识库资料。"}
 
-    queries = state['expanded_queries']
-    print(f"正在使用查询进行检索: {queries}")
-    embeddings = await asyncio.to_thread(sentence_model.encode, queries)#sentence_model.encode 是同步的，用 to_thread 在异步环境中运行
+    if knowledge_collection.count() == 0:
+        print("    知识库为空，跳过检索。")
+        return {"retrieved_context": "知识库中无任何资料。"}
 
-    #从新的知识库集合中查询
-    results = knowledge_collection.query(
-        query_embeddings=embeddings, 
-        n_results=5 # 可以调整检索出的文档块数量
+    # --- 第一阶段：召回 (Recall) ---
+    # 使用扩展后的查询来做初步筛选，以获得更广泛的候选集
+    queries = state['expanded_queries']
+    print(f"    [召回] 正在使用 {len(queries)} 个扩展查询进行初步检索...")
+    query_embeddings = await asyncio.to_thread(sentence_model.encode, queries)
+
+    # 召回一批可能相关的候选文档 (比如20个)
+    recall_results = knowledge_collection.query(
+        query_embeddings=query_embeddings.tolist(), 
+        n_results=20
     )
 
-    context_list = results.get('documents', [[]])[0]
-    context_str = "\n\n---\n\n".join(context_list)
+    if not recall_results or not recall_results['documents'] or not recall_results['documents'][0]:
+        print("    [召回] 未找到任何候选文档。")
+        return {"retrieved_context": "在知识库中未找到相关资料。"}
 
-    print(f"检索到的知识库上下文长度: {len(context_str)}字")
-    return {"retrieved_context": context_str or "在本地知识库中未找到相关资料。"}
+    recalled_documents = recall_results['documents'][0]
+    # 去重，防止多个查询召回同一个文档
+    unique_documents = list(dict.fromkeys(recalled_documents))
+    print(f"    [召回] 初步检索到 {len(unique_documents)} 个不重复的文档块。")
+
+    # --- 第二阶段：精排 (Rerank) ---
+    print("--- [精排] ---")
+
+    # 准备 Cross-Encoder 的输入：[(原始主题, 文档1), (原始主题, 文档2), ...]
+    pairs = [[topic, doc] for doc in unique_documents]
+
+    print(f"    正在为 {len(pairs)} 个候选文档计算相关度分数...")
+    # reranker.predict 是同步的，用 to_thread 运行
+    scores = await asyncio.to_thread(reranker_model.predict, pairs)
+    print("    分数计算完成。")
+
+    # 将分数与文档内容关联，并按分数从高到低排序
+    scored_docs = sorted(zip(scores, unique_documents), key=lambda x: x[0], reverse=True)
+
+    # 应用相似度阈值并提取最终的上下文
+    final_context_list = []
+    RERANK_THRESHOLD = 0.1 # 您可以根据RAG的效果调整这个阈值
+    TOP_K = 5 # 只选择最相关的5个文档块
+
+    print("--- [精排结果过滤] ---")
+    for score, doc in scored_docs[:TOP_K]:
+        if score > RERANK_THRESHOLD:
+            print(f"    - (分数: {score:.4f}) - 相关，保留。")
+            final_context_list.append(doc)
+        else:
+            print(f"    - (分数: {score:.4f}) - 不够相关，忽略。")
+
+    final_context_str = "\n\n---\n\n".join(final_context_list)
+
+    if not final_context_str:
+        print("精排后未找到足够相关的上下文。")
+        return {"retrieved_context": "在知识库中未找到足够相关的资料。"}
+
+    print(f"精排后选出 {len(final_context_list)} 个文档块，总长度: {len(final_context_str)}字")
+    return {"retrieved_context": final_context_str}
 
 
 async def generate_report_node(state: GraphState) -> GraphState:
@@ -112,19 +163,17 @@ async def generate_report_node(state: GraphState) -> GraphState:
 
     adapter = get_model_adapter(model_name)
 
-    # --- vvvv 核心修改：在这里进行判断和特殊处理 vvvv ---
     if isinstance(adapter, (DeepSeekAdapter,QwenApiAdapter)):
-        # **情况A：对于DeepSeek，我们手动控制JSON模式**
         print("    检测到DeepSeek模型，手动开启JSON模式。")
 
-        # 1. 创建LLM实例，并手动传入 response_format
+        # 创建LLM实例
         llm = adapter.create_chat_model(
             model_name=model_name, 
             temperature=0.7,
             response_format={'type': 'json_object'} 
         )
 
-        # 2. 使用 PydanticOutputParser 来构建一个包含格式指令的链
+        # 使用 PydanticOutputParser 
         parser = PydanticOutputParser(pydantic_object=StructuredReport)
         prompt_template = ChatPromptTemplate.from_messages([
             ("system", report_prompts.SYSTEM_INSTRUCTION),
@@ -132,7 +181,7 @@ async def generate_report_node(state: GraphState) -> GraphState:
         ])
         chain = prompt_template | llm | parser
 
-        # 3. 异步调用链
+        # 异步调用链
         response_dict = await chain.ainvoke({
             "topic": topic, "context": context,
             "formatting_instructions": formatting_instructions,
@@ -141,7 +190,7 @@ async def generate_report_node(state: GraphState) -> GraphState:
         response = StructuredReport.model_validate(response_dict)
 
     else:
-        # **情况B：对于其他模型（如Gemini），继续使用LangChain的
+       
         print("    使用 .with_structured_output 方法进行结构化输出...")
         llm = adapter.create_chat_model(model_name=model_name, temperature=0.5)
         structured_llm = llm.with_structured_output(StructuredReport)
@@ -153,12 +202,10 @@ async def generate_report_node(state: GraphState) -> GraphState:
         prompt_inputs = {"topic": topic, "context": context, "formatting_instructions": formatting_instructions}
         formatted_prompt = prompt_template.invoke(prompt_inputs)
         response = await structured_llm.ainvoke(formatted_prompt)
-    # --- ^^^^ 修改结束 ^^^^ ---
 
     print("最终报告已生成。")
     return {"final_report": response}
 
-# --- 组装图 ---
 
 workflow = StateGraph(GraphState)
 

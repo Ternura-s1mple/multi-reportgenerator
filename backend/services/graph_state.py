@@ -9,5 +9,6 @@ class GraphState(TypedDict):
     model_name: str              # 要使用的模型名称
     template_content: Optional[str]   #可选的模板内容
     sentence_model: Optional[Any]
+    reranker_model: Optional[Any]
     reports_collection: Optional[Any]
     knowledge_collection: Optional[Any]

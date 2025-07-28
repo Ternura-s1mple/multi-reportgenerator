@@ -59,16 +59,14 @@ class VLLMAdapter(ModelAdapter):
 
 # 工厂函数：根据模型名称返回对应的适配器实例
 def get_model_adapter(model_name: str) -> ModelAdapter:
-    # 使用更精确的 startswith 来判断，避免混淆
     if model_name.startswith("gemini"):
         return GeminiAdapter()
     elif model_name.startswith("deepseek"):
         return DeepSeekAdapter()
     elif model_name in MODEL_MAPPING.values() and "qwen" in model_name.lower():
-        # 判断是否是API版本的Qwen
         if model_name == MODEL_MAPPING.get("qwen-api"):
              return QwenApiAdapter()
-        else: # 否则认为是本地部署的Qwen
+        else: # 认为是本地部署的Qwen
              return VLLMAdapter()
     else:
         # 可以保留一个通用的VLLM作为默认或抛出错误
@@ -78,6 +76,6 @@ def get_model_adapter(model_name: str) -> ModelAdapter:
 def resolve_model_alias(alias: str) -> str | None:
     """
     根据前端传来的别名(alias)，查找真实的API模型名称。
-    这是一个专门的服务函数，封装了映射逻辑。
+    专门的服务函数，封装了映射逻辑。
     """
     return MODEL_MAPPING.get(alias)

@@ -45,7 +45,6 @@ backend/
 ├── main.py               # 应用主入口：组装App，加载中间件和路由。
 └── .env                  # 环境变量文件，存储敏感密钥。
 ```
-**注意**: 我已根据您的说明，将原 `core` 文件夹命名为 `config`。
 
 ## 🛠️ 技术栈
 
@@ -93,11 +92,6 @@ npm install
 
 ### 4. 启动服务
 
-**推荐方式 (一键启动):**
-```bash
-# 在 frontend 目录下运行
-npm run start:all
-```
 
 **手动分别启动:**
 - **启动后端**: 在项目**根目录**下运行 `uvicorn backend.main:app --reload`
