@@ -238,19 +238,42 @@ def find_similar_reports(request_data: report_schemas.TopicRequest, request: Req
         print("向量数据库为空，无需搜索。")
         return []
 
+    # 您的模型获取方式保持不变
     sentence_model = request.app.state.sentence_model
     embedding = sentence_model.encode(request_data.topic).tolist()
 
-    results = collection.query(query_embeddings=[embedding], n_results=3)
+    results = collection.query(
+        query_embeddings=[embedding],
+        n_results=3
+    )
 
-    if not results['ids'][0]:
+    # vvvv 在这里加入过滤逻辑 vvvv
+    if not results or not results['ids'] or not results['ids'][0]:
         return []
+    
+    ids = results['ids'][0]
+    distances = results['distances'][0]
+    
+    truly_similar_ids = []
+    SIMILARITY_THRESHOLD = 0.5  # 相似度阈值，值越小代表越相似。您可以根据效果调整
 
-    similar_ids = [int(id_str) for id_str in results['ids'][0]]
-    print(f"找到相似报告ID: {similar_ids}")
+    print("--- [相似度过滤] ---")
+    for i, dist in enumerate(distances):
+        if dist < SIMILARITY_THRESHOLD:
+            print(f"    - ID {ids[i]} (距离: {dist:.4f}) - 足够相似，保留。")
+            truly_similar_ids.append(int(ids[i]))
+        else:
+            print(f"    - ID {ids[i]} (距离: {dist:.4f}) - 不够相似，忽略。")
+    
+    if not truly_similar_ids:
+        print("找到了向量，但没有一个足够相似。")
+        return []
+    # ^^^^ 过滤逻辑结束 ^^^^
 
-    similar_reports = db.query(models.DbReport).filter(models.DbReport.id.in_(similar_ids)).all()
-    return similar_reports    
+    print(f"找到真正相似的报告ID: {truly_similar_ids}")
+    
+    similar_reports = db.query(models.DbReport).filter(models.DbReport.id.in_(truly_similar_ids)).all()
+    return similar_reports 
 
 
 # 删除单个报告记录及其关联文件和向量
